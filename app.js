@@ -19,12 +19,7 @@ var timestamps = {
 // console.log(last.user);  // print the time period since this user interacted with the commands, in ms; if `userId` is
 //                          // is null or undefined, the field will be `null` as well.
 var getTimePeriod = function( command, userId ) {
-  if( !command ) {
-    return {
-      any: null,
-      user: null,
-    }
-  }
+  if (!command) return { any: null, user: null };
 
   var now = new Date();
   var res = {};
@@ -55,17 +50,17 @@ var getTimePeriod = function( command, userId ) {
     res["user"] = null;
   }
 
-  return res
+  return res;
 }
 
 // Source: https://www.thepolyglotdeveloper.com/2015/03/create-a-random-nonce-string-using-javascript/
 function nonce( length ) {
-    var text = "";
-    var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    for (var i = 0; i < length; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+  var text = "";
+  var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  for (var i = 0; i < length; i++) {
+      text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
 }
 
 /**
@@ -75,26 +70,28 @@ function nonce( length ) {
  * @returns { string | null }
  */
 async function validatePassword( password ) {
-  let err = null;
-  let validation = await fetch( "https://id.twitch.tv/oauth2/validate", {
-    headers: {
-      "Authorization": `OAuth ${password}`
+  try {
+    const response = await fetch("https://id.twitch.tv/oauth2/validate", {
+      headers: {
+        "Authorization": `OAuth ${password}`
+      }
+    });
+
+    const validation = await response.json();
+
+    if (!validation.client_id) {
+      console.error("Invalid Password");
+      return null;
     }
-  }).then( r => r.json() )
-  .catch( e => (err = e, null));
 
-  if ( err || validation === null ) {
-    console.error( "Error fetching validation: ", err );
+    return validation;
+    
+  } catch ( error ) {
+    console.error("Error fetching validation:", error);
     return null;
   }
-
-  if ( !validation.client_id ) {
-    console.error( "Invalid Password" );
-    return null;
-  }
-
-  return validation;
 }
+
 
 /**
  * 
@@ -104,21 +101,22 @@ async function validatePassword( password ) {
  * @returns { string | null }
  */
 async function fetchChannelIdAsync( channel, clientId, password ) {
-  let err;
-  let userInfo = await fetch( "https://api.twitch.tv/helix/users?login=" + channel, {
-    headers: {
-      "Client-ID": clientId,
-      "Authorization": `Bearer ${password}`
+  try {
+    const response = await fetch( "https://api.twitch.tv/helix/users?login=" + channel, {
+      headers: {
+        "Client-ID": clientId,
+        "Authorization": `Bearer ${password}`
+      }
+    });
+
+    const userInfo = await response.json();
+
+    return userInfo.data[ 0 ].id;
+
+    } catch ( error ) {
+      console.error( "Error fetching user info: ", error );
+      return null;
     }
-  }).then( r => r.json() )
-  .catch( e => (err = e, null));
-
-  if ( err || userInfo === null ) {
-    console.error( "Error fetching user info: ", err );
-    return null;
-  }
-
-  return userInfo.data[ 0 ].id;
 }
 
 /**
@@ -196,34 +194,26 @@ async function eventSubConnectAsync( channel, password, clientId = null, channel
     ],
   };
   
-  if( !password ) {
-    console.error( "No OAuth password provided" );
-    return;
-  }
+  if( !password ) return console.error( "No OAuth password provided" );
+
 	password = password.replace( "oauth:", "" );
   const userValidation = await validatePassword( password );
 
   if ( !clientId ) {
     // if validation failed, return
-    if ( userValidation === null ) {
-      return;
-    }
+    if ( userValidation === null ) return;
+
     clientId = userValidation.client_id;
   }
 
   if ( !channelId ) {
     channelId = await fetchChannelIdAsync( channel, clientId, password );
-    if ( channelId === null ) {
-      return;
-    }
+    if ( channelId === null ) return;
   }
 
   let keepAliveSeconds = 30;
   if (!connectionName) {
-    connectionName = "wss://eventsub.wss.twitch.tv/ws";
-    if ( keepAliveSeconds !== 30 ) {
-      connectionName += "?keepalive_timeout_seconds=" + keepAliveSeconds;
-    }
+    connectionName = "wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=" + keepAliveSeconds;
   }
 
   const ws = typeof window !== "undefined"
@@ -489,13 +479,8 @@ async function pubsubConnect( channel, password ) {
 	}).then( r => r.json() );
 	let channelId = userInfo.data[ 0 ].id;
 
-	let ws;
-	if( typeof window !== "undefined" ) {
-		ws = new WebSocket( "wss://pubsub-edge.twitch.tv" );
-	}
-	else {
-		ws = new NodeSocket( "wss://pubsub-edge.twitch.tv" );
-	}
+	let ws = typeof window !== "undefined" ? new WebSocket( "wss://pubsub-edge.twitch.tv" ) : new NodeSocket( "wss://pubsub-edge.twitch.tv" );
+
 	ws.onopen = function( event ) {
 		ws.send( JSON.stringify( { type: 'PING' } ) );
         heartbeatHandle = setInterval( () => {
@@ -620,172 +605,135 @@ var comfyJS = {
   isDebug: false,
   useEventSub: true, // set to false to use PubSub
   chatModes: {},
+  // ------------------------------------------------------
+  //         Comfyjs Util Functions
+  // ------------------------------------------------------
   version: function() {
     return "@VERSION";
+  },
+  debugHandlerMessage: function( message ) {
+    comfyJS.isDebug && console.log( message );
   },
   onError: function( error ) {
     console.error( "Error:", error );
   },
+  // ------------------------------------------------------
+  //         Comfyjs Twitch Functions
+  // ------------------------------------------------------
   onCommand: function( user, command, message, flags, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onCommand default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onCommand default handler" );
   },
   onChat: function( user, message, flags, self, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onChat default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onChat default handler" );
   },
   onWhisper: function( user, message, flags, self, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onWhisper default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onWhisper default handler" );
   },
   onMessageDeleted: function( id, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onMessageDeleted default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onMessageDeleted default handler" );
   },
   onBan: function (bannedUsername, extra) {
-    if ( comfyJS.isDebug ){
-      console.log ( "onBan default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onBan default handler" );
   },
   onTimeout: function (timedOutUsername, durationInSeconds, extra) {
-    if ( comfyJS.isDebug ){
-      console.log ( "onTimeout default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onTimeout default handler" );
   },
   onJoin: function( user, self, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onJoin default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onJoin default handler" );
   },
   onPart: function( user, self, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onPart default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onPart default handler" );
   },
   onHosted: function( user, viewers, autohost, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onHosted default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onHosted default handler" );
   },
   onRaid: function( user, viewers, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onRaid default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onRaid default handler" );
   },
   onSub: function( user, message, subTierInfo, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onSub default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onSub default handler" );
   },
   onResub: function( user, message, streakMonths, cumulativeMonths, subTierInfo, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onResub default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onResub default handler" );
   },
   onSubGift: function( gifterUser, streakMonths, recipientUser, senderCount, subTierInfo, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onSubGift default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onSubGift default handler" );
   },
   onSubMysteryGift: function( gifterUser, numbOfSubs, senderCount, subTierInfo, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onSubMysteryGift default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onSubMysteryGift default handler" );
   },
   onGiftSubContinue: function( user, sender, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onGiftSubContinue default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onGiftSubContinue default handler" );
   },
   onCheer: function( user, message, bits, flags, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onCheer default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onCheer default handler" );
   },
   onChatMode: function( flags, channel ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onChatMode default handler" );
-    }
+    comfyJS.debugHandlerMessage( "onChatMode default handler" );
   },
   onReward: function( user, reward, cost, message, extra ) {
-    if( comfyJS.isDebug ) {
-      console.log( "onReward default handler" );
-    }
+    comfyJS.debugHandlerMessage ( "onReward default handler" );
   },
   onConnected: function( address, port, isFirstConnect ) {
   },
   onReconnect: function( reconnectCount ) {
   },
-  Say: function( message, channel ) {
-    if( client ) {
-      if( !channel ) {
-        channel = mainChannel;
-      }
-      client.say( channel, message )
-      .catch( comfyJS.onError );
-      return true;
-    }
-    return false;
+  Say: function( message, channel = mainChannel ) {
+    if( !client ) return false;
+
+    client.say( channel, message )
+    .catch( comfyJS.onError );
+    return true;
   },
-  Reply: function (parentId, message, channel) {
-    if (client) {
-      if (!channel) {
-        channel = mainChannel;
-      }
-      const replyMessage = `@reply-parent-msg-id=${parentId} PRIVMSG #${channel} :${message}`;
-      client.ws.send(replyMessage);
-      return true;
-    }
-    return false;
+  Reply: function (parentId, message, channel = mainChannel) {
+    if ( !client ) return false;
+
+    const replyMessage = `@reply-parent-msg-id=${parentId} PRIVMSG #${channel} :${message}`;
+    client.ws.send(replyMessage);
+    return true;
   },
   Whisper: function( message, user ) {
-    if( client ) {
-      client.whisper( user, message )
-      .catch( comfyJS.onError );
-      return true;
-    }
-    return false;
+    if( !client ) return false;
+
+    client.whisper( user, message )
+    .catch( comfyJS.onError );
+    return true;
   },
-  Announce: function( message, channel, color = null ) {
-    if( client ) {
-      if( !channel ) {
-        channel = mainChannel;
-      }
-      client.say( channel, `/announce ${message}` )
-      .catch( comfyJS.onError );
-      return true;
-    }
-    return false;
+  Announce: function( message, channel = mainChannel, color = null ) {
+    if( !client ) return false;
+
+    client.say( channel, `/announce ${message}` )
+    .catch( comfyJS.onError );
+    return true;
   },
-  DeleteMessage: function( id, channel ) {
-    if( client ) {
-      if( !channel ) {
-        channel = mainChannel;
-      }
-      client.deletemessage( channel, id )
-      .catch( comfyJS.onError );
-      return true;
-    }
-    return false;
+  DeleteMessage: function( id, channel = mainChannel ) {
+    if( !client ) return false;
+
+    client.deletemessage( channel, id )
+    .catch( comfyJS.onError );
+    return true;
   },
   GetClient: function() {
     return client;
   },
+  // ------------------------------------------------------
+  //               Comfyjs Initialise
+  // ------------------------------------------------------
   Init: function( username, password, channels, isDebug ) {
     channels = channels || [ username ];
+
     if( typeof channels === 'string' || channels instanceof String ) {
       channels = [ channels ];
     }
+
     if( !Array.isArray( channels ) ) {
       throw new Error( "Channels is not an array" );
     }
+
     comfyJS.isDebug = isDebug;
     eventsubDisconnect = null;
     mainChannel = channels[ 0 ];
+
     var options = {
       options: {
         debug: isDebug,
@@ -797,6 +745,7 @@ var comfyJS = {
       },
       channels: channels
     };
+    
     if( password ) {
       options.identity = {
         username: username,
@@ -1135,6 +1084,9 @@ var comfyJS = {
     }
 	}
   },
+  // ------------------------------------------------------
+  //               Comfyjs Twitch Handlers
+  // ------------------------------------------------------
   Disconnect: function() {
     if ( typeof eventsubDisconnect === "function" ) {
       eventsubDisconnect();
@@ -1145,104 +1097,102 @@ var comfyJS = {
     client.disconnect()
     .catch( comfyJS.onError );
   },
+  // ------------------------------------------------------
+  //           Comfyjs Twitch other? Handlers
+  // ------------------------------------------------------
   GetChannelRewards: async function( clientId, manageableOnly = false ) {
-      if( channelPassword ) {
-          if( !channelInfo ) {
-              let info = await fetch( `https://api.twitch.tv/helix/users?login=${mainChannel}`, {
-                  headers: {
-                      "Client-ID": clientId,
-                      "Authorization": `Bearer ${channelPassword}`
-                  }
-              } ).then( r => r.json() );
-              channelInfo = info.data[ 0 ];
-          }
-          let rewards = await fetch( `https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=${channelInfo.id}&only_manageable_rewards=${manageableOnly}`, {
-              headers: {
-                  "Client-ID": clientId,
-                  "Authorization": `Bearer ${channelPassword}`
-              }
-          } ).then( r => r.json() );
-          return rewards.data || [];
-      }
-      else {
-          return [];
-      }
+    if( !channelPassword ) return [];
+
+    if( !channelInfo ) {
+        let info = await fetch( `https://api.twitch.tv/helix/users?login=${mainChannel}`, {
+            headers: {
+                "Client-ID": clientId,
+                "Authorization": `Bearer ${channelPassword}`
+            }
+        } ).then( r => r.json() );
+        channelInfo = info.data[ 0 ];
+    }
+
+    let rewards = await fetch( `https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=${channelInfo.id}&only_manageable_rewards=${manageableOnly}`, {
+        headers: {
+            "Client-ID": clientId,
+            "Authorization": `Bearer ${channelPassword}`
+        }
+    } ).then( r => r.json() );
+    
+    return rewards.data || [];
   },
   CreateChannelReward: async function( clientId, rewardInfo ) {
-      if( channelPassword ) {
-          if( !channelInfo ) {
-              let info = await fetch( `https://api.twitch.tv/helix/users?login=${mainChannel}`, {
-                  headers: {
-                      "Client-ID": clientId,
-                      "Authorization": `Bearer ${channelPassword}`
-                  }
-              } ).then( r => r.json() );
-              channelInfo = info.data[ 0 ];
+    if( !channelPassword ) throw new Error( "Missing Channel Password" );
+
+    if( !channelInfo ) {
+      let info = await fetch( `https://api.twitch.tv/helix/users?login=${mainChannel}`, {
+          headers: {
+              "Client-ID": clientId,
+              "Authorization": `Bearer ${channelPassword}`
           }
-          let custom = await fetch( `https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=${channelInfo.id}`, {
-              method: "POST",
-              headers: {
-                  "Client-ID": clientId,
-                  "Authorization": `Bearer ${channelPassword}`,
-                  "Content-Type": "application/json"
-              },
-              body: JSON.stringify( rewardInfo )
-          } ).then( r => r.json() );
-          return custom.data[ 0 ];
-      }
-      else {
-          throw new Error( "Missing Channel Password" );
-      }
+      } ).then( r => r.json() );
+      channelInfo = info.data[ 0 ];
+    }
+
+    let custom = await fetch( `https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=${channelInfo.id}`, {
+      method: "POST",
+      headers: {
+          "Client-ID": clientId,
+          "Authorization": `Bearer ${channelPassword}`,
+          "Content-Type": "application/json"
+      },
+      body: JSON.stringify( rewardInfo )
+    } ).then( r => r.json() );
+    
+    return custom.data[ 0 ];
   },
-  UpdateChannelReward: async function( clientId, rewardId, rewardInfo ) {
-      if( channelPassword ) {
-          if( !channelInfo ) {
-              let info = await fetch( `https://api.twitch.tv/helix/users?login=${mainChannel}`, {
-                  headers: {
-                      "Client-ID": clientId,
-                      "Authorization": `Bearer ${channelPassword}`
-                  }
-              } ).then( r => r.json() );
-              channelInfo = info.data[ 0 ];
-          }
-          let custom = await fetch( `https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=${channelInfo.id}&id=${rewardId}`, {
-              method: "PATCH",
-              headers: {
-                  "Client-ID": clientId,
-                  "Authorization": `Bearer ${channelPassword}`,
-                  "Content-Type": "application/json"
-              },
-              body: JSON.stringify( rewardInfo )
-          } ).then( r => r.json() );
-          return custom.data[ 0 ];
-      }
-      else {
-          throw new Error( "Missing Channel Password" );
-      }
+  UpdateChannelReward: async function( clientId, rewardId, rewardInfo ){
+    if( !channelPassword ) throw new Error( "Missing Channel Password" );
+
+    if( !channelInfo ) {
+        let info = await fetch( `https://api.twitch.tv/helix/users?login=${mainChannel}`, {
+            headers: {
+                "Client-ID": clientId,
+                "Authorization": `Bearer ${channelPassword}`
+            }
+        } ).then( r => r.json() );
+        channelInfo = info.data[ 0 ];
+    }
+
+    let custom = await fetch( `https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=${channelInfo.id}&id=${rewardId}`, {
+        method: "PATCH",
+        headers: {
+            "Client-ID": clientId,
+            "Authorization": `Bearer ${channelPassword}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify( rewardInfo )
+    } ).then( r => r.json() );
+
+    return custom.data[ 0 ];
   },
   DeleteChannelReward: async function( clientId, rewardId ) {
-      if( channelPassword ) {
-          if( !channelInfo ) {
-              let info = await fetch( `https://api.twitch.tv/helix/users?login=${mainChannel}`, {
-                  headers: {
-                      "Client-ID": clientId,
-                      "Authorization": `Bearer ${channelPassword}`
-                  }
-              } ).then( r => r.json() );
-              channelInfo = info.data[ 0 ];
-          }
-          let deleted = await fetch( `https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=${channelInfo.id}&id=${rewardId}`, {
-              method: "DELETE",
-              headers: {
-                  "Client-ID": clientId,
-                  "Authorization": `Bearer ${channelPassword}`
-              }
-          } ).then( r => r.text() );
-          return deleted;
-      }
-      else {
-          throw new Error( "Missing Channel Password" );
-      }
+    if( !channelPassword ) throw new Error( "Missing Channel Password" );
+
+    if( !channelInfo ) {
+        let info = await fetch( `https://api.twitch.tv/helix/users?login=${mainChannel}`, {
+            headers: {
+                "Client-ID": clientId,
+                "Authorization": `Bearer ${channelPassword}`
+            }
+        } ).then( r => r.json() );
+        channelInfo = info.data[ 0 ];
+    }
+
+    let deleted = await fetch( `https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=${channelInfo.id}&id=${rewardId}`, {
+        method: "DELETE",
+        headers: {
+            "Client-ID": clientId,
+            "Authorization": `Bearer ${channelPassword}`
+        }
+    } ).then( r => r.text() );
+    return deleted;
   }
 };
 
